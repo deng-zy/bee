@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+const (
+	DEFAULT_INTERVAL = 5
+)
+
 type watchResult struct {
 	Host    string `json:"host"`
 	IsAlive bool   `json:"isAlive"`
@@ -26,9 +30,9 @@ type SNMP struct {
 	interval time.Duration
 }
 
-func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP) {
+func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP, error) {
 	if hosts.String() == "" {
-        panic(fmt.Errorf("watch snmp host list empty. origin:%s", hosts.String()))
+		panic(fmt.Errorf("watch snmp host list empty. origin:%s", hosts.String()))
 	}
 
 	return &SNMP{
@@ -44,14 +48,14 @@ func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP) {
 }
 
 func (s *SNMP) Port(port uint16) {
-    s.port = port
+	s.port = port
 }
 
 func (s *SNMP) Boot() {
 	for _, host := range s.hosts {
 		interval, err := time.ParseDuration(host.Get("interval").String())
 		if err != nil {
-			interval = 5
+			interval = DEFAULT_INTERVAL
 		}
 		go s.watch(host.Get("host").String(), interval)
 		s.routines++
