@@ -12,6 +12,7 @@ import (
 
 const (
 	DEFAULT_INTERVAL = 5
+	DEFULAT_PORT     = 161
 )
 
 type watchResult struct {
@@ -36,7 +37,7 @@ func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP, error) {
 	}
 
 	return &SNMP{
-		port:     161,
+		port:     DEFULAT_PORT,
 		running:  true,
 		routines: 0,
 		hosts:    hosts.Array(),
