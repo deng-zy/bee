@@ -23,7 +23,6 @@ type watchResult struct {
 type SNMP struct {
 	port     uint16
 	running  bool
-	routines uint16
 	oid      []string
 	ch       chan watchResult
 	setting  *ini.Section
@@ -39,7 +38,6 @@ func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP, error) {
 	return &SNMP{
 		port:     DEFAULT_PORT,
 		running:  true,
-		routines: 0,
 		hosts:    hosts.Array(),
 		ch:       make(chan watchResult, 1024),
 		setting:  setting,
@@ -59,7 +57,6 @@ func (s *SNMP) Boot() {
 			interval = DEFAULT_INTERVAL
 		}
 		go s.watch(host.Get("host").String(), interval)
-		s.routines++
 	}
 	s.receiver()
 	fmt.Fprintln(os.Stdout, "snmp worker shutdown")
@@ -125,7 +122,6 @@ func (s *SNMP) watch(host string, interval time.Duration) {
 			time.Sleep(interval)
 		}
 	}
-	s.routines--
 }
 
 func (s *SNMP) send(host string, isAlive bool) {
@@ -135,7 +131,12 @@ func (s *SNMP) send(host string, isAlive bool) {
 }
 
 func (s *SNMP) receiver() {
-	for s.running || s.routines < 1 {
+	for s.running || len(s.ch) > 0 {
+		if len(s.ch) < 1 {
+			time.Sleep(s.interval)
+			continue
+		}
+
 		result := make([]watchResult, len(s.hosts))
 		for range s.hosts {
 			val := <-s.ch
@@ -148,6 +149,5 @@ func (s *SNMP) receiver() {
 		} else {
 			fmt.Printf("%s\n", origin)
 		}
-		time.Sleep(s.interval)
 	}
 }
