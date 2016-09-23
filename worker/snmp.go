@@ -137,9 +137,9 @@ func (s *SNMP) send(host string, isAlive bool) {
 func (s *SNMP) receiver() {
 	for s.running || s.routines < 1 {
 		result := make([]watchResult, len(s.hosts))
-		for index := range s.hosts {
+		for range s.hosts {
 			val := <-s.ch
-			result[index] = val
+			result = append(result, val)
 		}
 
 		origin, err := json.Marshal(result)
