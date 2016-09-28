@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"github.com/go-ini/ini"
 	"github.com/urfave/cli"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path"
+	"sync"
 )
 
 func main() {
@@ -65,14 +68,31 @@ func bootWorkers(iniFile string) {
 		os.Exit(exitCode)
 	}
 
+	URLSetting, err := config.GetSection("url")
+	if err != nil {
+		fmt.Printf("not found url section in %s file", iniFile)
+		os.Exit(exitCode)
+	}
+
+	var wg sync.WaitGroup
+
 	var SNMPWorker *worker.SNMP
-	SNMPWorker, err = worker.NewSNMP(SNMPSetting, agentSetting.Get("snmp"))
+	SNMPWorker = worker.NewSNMP(SNMPSetting, agentSetting.Get("snmp"))
+
+	var URLWorker *worker.Url
+	URLWorker = worker.NewUrl(URLSetting, agentSetting.Get("url"))
+
 	if err != nil {
 		panic(err)
 	}
 
-	SNMPWorker.Boot()
+	go func() {
+		http.ListenAndServe("localhost:7777", nil)
+	}()
 
-	//worker.SNMPBoot(SNMPSetting, agentSetting.Get("snmp"))
+	wg.Add(2)
+	go SNMPWorker.Boot(wg)
+	go URLWorker.Boot(wg)
+	wg.Wait()
+	os.Exit(0)
 }
-
