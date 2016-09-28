@@ -7,6 +7,7 @@ import (
 	"github.com/soniah/gosnmp"
 	"github.com/tidwall/gjson"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -30,7 +31,7 @@ type SNMP struct {
 	interval time.Duration
 }
 
-func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP, error) {
+func NewSNMP(setting *ini.Section, hosts gjson.Result) *SNMP {
 	if hosts.String() == "" {
 		panic(fmt.Errorf("watch snmp host list empty. origin:%s", hosts.String()))
 	}
@@ -43,23 +44,24 @@ func NewSNMP(setting *ini.Section, hosts gjson.Result) (*SNMP, error) {
 		setting:  setting,
 		interval: 3 * time.Second,
 		oid:      []string{"1.3.6.1.2.1.1.5.0"},
-	}, nil
+	}
 }
 
 func (s *SNMP) Port(port uint16) {
 	s.port = port
 }
 
-func (s *SNMP) Boot() {
+func (s *SNMP) Boot(wg sync.WaitGroup) {
 	for _, host := range s.hosts {
 		interval, err := time.ParseDuration(host.Get("interval").String())
 		if err != nil {
 			interval = DEFAULT_INTERVAL
 		}
-		go s.watch(host.Get("host").String(), interval)
+		go s.watch(host.Get("host").String(), interval * time.Second)
 	}
 	s.receiver()
 	fmt.Fprintln(os.Stdout, "snmp worker shutdown")
+	wg.Done()
 }
 
 func (s *SNMP) Stop() {
@@ -93,34 +95,27 @@ func (s *SNMP) createClient(host string) *gosnmp.GoSNMP {
 
 func (s *SNMP) watch(host string, interval time.Duration) {
 	var client *gosnmp.GoSNMP
+	var connErr error
+
 	client = s.createClient(host)
-	interval = interval * time.Second
+	connErr = client.Connect()
 
 	for s.running {
-		err := client.Connect()
-		alive := false
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s %v %v", host, s.oid, err)
-			s.send(host, false)
-			time.Sleep(interval)
-			continue
+		var alive bool = true
+
+		if connErr != nil {
+			fmt.Fprintf(os.Stderr, "connection to %s fail. error: %s\n", host, connErr)
+			alive = false
 		} else {
-			result, err := client.Get(s.oid)
+			_, err := client.Get(s.oid)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "get error.%s %s %s\n", host, s.oid[0], err)
-			} else {
-				for _, v := range result.Variables {
-					switch v.Type {
-					case gosnmp.OctetString:
-						fmt.Fprintf(os.Stdout, "%s %s %s\n", host, s.oid[0], v.Value.([]byte))
-					}
-				}
-				alive = true
+				fmt.Fprintf(os.Stderr, "host:%s get %s fail. error:%s\n", host, s.oid[0], err)
+				alive = false
 			}
-			s.send(host, alive)
-			client.Conn.Close()
-			time.Sleep(interval)
 		}
+
+		s.send(host, alive)
+		time.Sleep(interval)
 	}
 }
 
@@ -138,9 +133,8 @@ func (s *SNMP) receiver() {
 		}
 
 		result := make([]watchResult, len(s.hosts))
-		for range s.hosts {
-			val := <-s.ch
-			result = append(result, val)
+		for i := range s.hosts {
+			result[i] = <-s.ch
 		}
 
 		origin, err := json.Marshal(result)
